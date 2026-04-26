@@ -4,11 +4,7 @@ Compatibility package that keeps Better Career as the career-mode authority whil
 
 ## Artifacts
 
-Generated release files are written to:
-
-```text
-C:\Users\bruni\Documents\PROJETOS\Jogos\BEANG\mods\generated
-```
+Generated release files are written to the configured output directory.
 
 - `CareerMP_BetterCareer.zip`: combined client package to install as `Resources/Client/CareerMP.zip`.
 - `CareerMP_BetterCareer_Server.zip`: CareerMP server resource package with upstream auto-update disabled.
@@ -27,26 +23,16 @@ C:\Users\bruni\Documents\PROJETOS\Jogos\BEANG\mods\generated
 
 ## Build
 
-Expected local source files:
+Expected source archives:
 
-- `C:\Users\bruni\Documents\PROJETOS\Jogos\BEANG\mods\better_career\better_career_mod_v0.5.0.zip`
-- `C:\Users\bruni\Documents\PROJETOS\Jogos\BEANG\mods\better_career\CareerMP_v0.0.31.zip`
+- `better_career_mod_v0.5.0.zip`
+- `CareerMP_v0.0.31.zip`
 
 The build script downloads the official CareerMP client from the upstream URL defined in the script and combines it with Better Career.
 
 ```powershell
 python .\scripts\build_better_career_careermp.py --skip-test-server
 ```
-
-## Test Server
-
-The current local validation server is:
-
-```text
-C:\Users\bruni\Documents\PROJETOS\Jogos\BEANG\servers\tests\better-career-careermp-west-coast-persist-30843
-```
-
-Test port: `30843`
 
 ## Validated Output
 

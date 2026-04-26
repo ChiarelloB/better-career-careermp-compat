@@ -17,13 +17,10 @@ ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_BETTER_CAREER = ROOT / "mods" / "better_career" / "better_career_mod_v0.5.0.zip"
 DEFAULT_SERVER = ROOT / "mods" / "better_career" / "CareerMP_v0.0.31.zip"
 DEFAULT_OUT_DIR = ROOT / "mods" / "generated"
-DEFAULT_TEST_SERVER = ROOT / "servers" / "tests" / "better-career-careermp-west-coast"
-DEFAULT_TEMPLATE_SERVER = ROOT / "servers" / "tests" / "west-coast"
 UPSTREAM_CLIENT_URL = "https://raw.githubusercontent.com/StanleyDudek/CareerMP/main/Resources/Client/CareerMP.zip"
 
 CLIENT_OUT_NAME = "CareerMP_BetterCareer.zip"
 SERVER_OUT_NAME = "CareerMP_BetterCareer_Server.zip"
-SERVER_PORT = 30831
 
 CAREERMP_CLIENT_KEEP_PREFIXES = (
     "levels/west_coast_usa/main/MissionGroup/career_garage/",
@@ -1508,19 +1505,22 @@ def copy_tree_clean(src: Path, dst: Path) -> None:
     shutil.copytree(src, dst, ignore=ignore)
 
 
-def patch_server_config(server_dir: Path) -> None:
+def patch_server_config(server_dir: Path, server_port: int | None) -> None:
     config = server_dir / "ServerConfig.toml"
     text = config.read_text(encoding="utf-8")
-    text = re.sub(r"^Port = .*$", f"Port = {SERVER_PORT}", text, flags=re.MULTILINE)
+    if server_port is not None:
+        text = re.sub(r"^Port = .*$", f"Port = {server_port}", text, flags=re.MULTILINE)
     text = re.sub(r'^Name = ".*"$', 'Name = "Better Career + CareerMP Test"', text, flags=re.MULTILINE)
     text = re.sub(r'^Description = ".*"$', 'Description = "Better Career + original CareerMP bridge validation"', text, flags=re.MULTILINE)
     config.write_text(text, encoding="utf-8", newline="\n")
 
 
 def install_test_server(args: argparse.Namespace, artifacts: dict[str, object]) -> Path:
+    if args.template_server is None or args.test_server is None:
+        raise RuntimeError("--template-server and --test-server are required when installing a validation server.")
     test_server = args.test_server
     copy_tree_clean(args.template_server, test_server)
-    patch_server_config(test_server)
+    patch_server_config(test_server, args.server_port)
 
     resources_dir = test_server / "Resources"
     if resources_dir.exists():
@@ -1593,8 +1593,6 @@ def run_server_boot_check(server_dir: Path, timeout: int) -> dict[str, object]:
         "boot_ok": "ALL SYSTEMS STARTED SUCCESSFULLY, EVERYTHING IS OKAY" in log_text,
         "career_mp_loaded": "[CareerMP] ---------- CareerMP Loaded!" in log_text,
         "no_update_attempt": "CareerMP Update" not in log_text,
-        "port": SERVER_PORT,
-        "log_path": str(log_path),
     }
     return checks
 
@@ -1673,8 +1671,6 @@ def validate_outputs(args: argparse.Namespace, artifacts: dict[str, object], tes
         "multimap_app_keeps_beammp_unpaused": "BeamMP compatibility: never pause" in multimap_app,
         "multimap_treats_walking_as_foot_travel": "gameplay_walk.isWalking()" in multimap and "playerVehId = nil" in multimap,
         "server_autoupdate_disabled": server_config["server"]["autoUpdate"] is False,
-        "server_config_path": str(test_server / "Resources" / "Server" / "CareerMP" / "config" / "config.json"),
-        "test_server": str(test_server),
         "boot": boot,
     }
     validation["ok"] = (
@@ -1714,22 +1710,21 @@ def validate_outputs(args: argparse.Namespace, artifacts: dict[str, object], tes
 def write_report(args: argparse.Namespace, artifacts: dict[str, object], validation: dict[str, object]) -> Path:
     report = {
         "client": {
-            "path": str(artifacts["client_out"]),
+            "artifact": Path(artifacts["client_out"]).name,
             "sha256": sha256sum(artifacts["client_out"]),
             "size": Path(artifacts["client_out"]).stat().st_size,
             "entries": artifacts["client_entries"],
         },
         "server": {
-            "path": str(artifacts["server_out"]),
+            "artifact": Path(artifacts["server_out"]).name,
             "sha256": sha256sum(artifacts["server_out"]),
             "size": Path(artifacts["server_out"]).stat().st_size,
             "entries": artifacts["server_entries"],
         },
         "sources": {
-            "better_career": str(args.better_career),
-            "server": str(args.server),
+            "better_career": args.better_career.name,
+            "server": args.server.name,
             "upstream_client_url": UPSTREAM_CLIENT_URL,
-            "upstream_client_cache": str(artifacts["upstream_client"]),
         },
         "validation": validation,
     }
@@ -1745,8 +1740,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--server", type=Path, default=DEFAULT_SERVER)
     parser.add_argument("--out-dir", type=Path, default=DEFAULT_OUT_DIR)
     parser.add_argument("--workspace", type=Path, default=Path(__file__).resolve().parents[1])
-    parser.add_argument("--template-server", type=Path, default=DEFAULT_TEMPLATE_SERVER)
-    parser.add_argument("--test-server", type=Path, default=DEFAULT_TEST_SERVER)
+    parser.add_argument("--template-server", type=Path)
+    parser.add_argument("--test-server", type=Path)
+    parser.add_argument("--server-port", type=int)
     parser.add_argument("--skip-test-server", action="store_true")
     parser.add_argument("--boot-check", action="store_true")
     parser.add_argument("--boot-timeout", type=int, default=30)
@@ -1756,22 +1752,21 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
     artifacts = build_artifacts(args)
-    test_server = args.test_server
-    if not args.skip_test_server:
+    test_server = None
+    if not args.skip_test_server and (args.template_server is not None or args.test_server is not None):
         test_server = install_test_server(args, artifacts)
 
     boot = None
-    if args.boot_check and not args.skip_test_server:
+    if args.boot_check and test_server is not None:
         boot = run_server_boot_check(test_server, args.boot_timeout)
 
     validation = validate_outputs(args, artifacts, test_server, boot)
     report_path = write_report(args, artifacts, validation)
 
     print(json.dumps({
-        "client": str(artifacts["client_out"]),
-        "server": str(artifacts["server_out"]),
-        "test_server": str(test_server),
-        "report": str(report_path),
+        "client": Path(artifacts["client_out"]).name,
+        "server": Path(artifacts["server_out"]).name,
+        "report": report_path.name,
         "validation_ok": validation["ok"],
         "boot": boot,
     }, indent=2))
