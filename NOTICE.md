@@ -1,6 +1,5 @@
 # Notice
 
-Este repositório empacota uma adaptação local entre Better Career Mod, CareerMP e BeamMP para fins de compatibilidade.
+This repository packages a local compatibility adaptation between Better Career Mod, CareerMP, and BeamMP.
 
-Os direitos dos mods, scripts e assets originais pertencem aos respectivos autores. Este pacote não muda a autoria original desses projetos.
-
+All rights to the original mods, scripts, and assets belong to their respective authors. This package does not change the original authorship of those projects.

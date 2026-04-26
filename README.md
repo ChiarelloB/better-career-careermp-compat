@@ -1,56 +1,70 @@
 # Better Career + CareerMP Compatibility
 
-Pacote de compatibilidade para usar Better Career como autoridade do modo carreira e CareerMP como ponte multiplayer no BeamMP.
+Compatibility package that keeps Better Career as the career-mode authority while using CareerMP as the BeamMP multiplayer bridge.
 
-## Artefatos
+## Artifacts
 
-Os arquivos prontos ficam em `dist/`:
+Generated release files are written to:
 
-- `CareerMP_BetterCareer.zip`: cliente combinado para instalar como `Resources/Client/CareerMP.zip`.
-- `CareerMP_BetterCareer_Server.zip`: recurso de servidor CareerMP com auto-update desativado.
-- `build_report.json`: relatório do build, validação e boot-check.
-- `checksums.sha256`: hashes SHA256 dos artefatos.
+```text
+C:\Users\bruni\Documents\PROJETOS\Jogos\BEANG\mods\generated
+```
 
-## O Que Foi Adaptado
+- `CareerMP_BetterCareer.zip`: combined client package to install as `Resources/Client/CareerMP.zip`.
+- `CareerMP_BetterCareer_Server.zip`: CareerMP server resource package with upstream auto-update disabled.
+- `docs/build_report.json`: build report with validation results and artifact hashes.
 
-- CareerMP original não substitui mais `career_career` por `career_careerMP`.
-- Better Career continua controlando save, tutorial, garagem, marketplace, pintura, loans e spawn.
-- CareerMP mantém eventos de sync, pagamento, UI apps, prefab sync, drag display sync e paint sync.
-- O boot do CareerMP espera os módulos principais do Better Career antes de iniciar o save.
-- O walking/unicycle do BeamMP foi compatibilizado com o spawn do Better Career.
-- Travel nodes não pausam o jogador no BeamMP e viagem com destino único executa direto.
-- Tráfego do Better Career respeita as flags do servidor CareerMP.
+## What This Adapts
+
+- CareerMP no longer replaces `career_career` with `career_careerMP`.
+- Better Career continues to own saves, tutorial flow, garages, marketplace, paint, loans, and spawn behavior.
+- CareerMP still provides multiplayer sync events, payment UI, UI apps, prefab sync, drag display sync, and paint sync.
+- The CareerMP bridge waits for Better Career modules before starting the save.
+- BeamMP walking/unicycle state is preserved and repositioned when Better Career spawns or teleports the player.
+- Travel nodes stay BeamMP-safe and do not leave the player paused or floating.
+- Better Career traffic respects CareerMP server traffic settings.
+- BeamMP guest saves use a stable local identity so reconnecting with a new `guest...` nickname does not restart the tutorial.
 
 ## Build
 
-Pré-requisitos locais esperados pelo script:
+Expected local source files:
 
 - `C:\Users\bruni\Documents\PROJETOS\Jogos\BEANG\mods\better_career\better_career_mod_v0.5.0.zip`
 - `C:\Users\bruni\Documents\PROJETOS\Jogos\BEANG\mods\better_career\CareerMP_v0.0.31.zip`
 
-O script baixa o cliente oficial do CareerMP a partir da URL upstream usada no código.
+The build script downloads the official CareerMP client from the upstream URL defined in the script and combines it with Better Career.
 
 ```powershell
-python .\scripts\build_better_career_careermp.py --boot-check --boot-timeout 45
+python .\scripts\build_better_career_careermp.py --skip-test-server
 ```
 
-## Servidor De Teste
+## Test Server
 
-O build instala um servidor limpo em:
+The current local validation server is:
 
 ```text
-C:\Users\bruni\Documents\PROJETOS\Jogos\BEANG\servers\tests\better-career-careermp-west-coast
+C:\Users\bruni\Documents\PROJETOS\Jogos\BEANG\servers\tests\better-career-careermp-west-coast-persist-30843
 ```
 
-Porta usada no teste: `30831`.
+Test port: `30843`
 
-## Resultado Validado
+## Validated Output
 
-Último build funcional validado em BeamMP:
+Latest generated package:
 
-- Client hash: `5e136ad7c007ba924c034bf143296e7ccd87c50a1e3fdd836e98d78b24bb60fd`
+- Client SHA256: `6174e24eb25739ba7a696ebb1be7fcbd1cc0d6087d22de9cbb6b6b3805d09b07`
+- Server SHA256: `a09239d935443f3519df3569888d2abd87b8c1583360e1cb6696e71f2cd8cb52`
 - `zipfile.testzip()`: OK
-- servidor carregou CareerMP
-- auto-update desativado
-- Better Career carregando corretamente com BeamMP + CareerMP
+- Original CareerMP career replacement files are excluded.
+- CareerMP server auto-update is disabled.
+- Better Career boot, UI reload, identity fallback, starter garage guard, paint sync defer, travel fix, and stable guest save validation are enabled.
 
+## Reconnect Validation
+
+For guest users, BeamMP may assign a different `guest...` nickname after reconnecting. This package stores a local stable save identity in:
+
+```text
+settings/careerMPBetterCareer/guestSaveIdentity.json
+```
+
+That stable identity is used only for Better Career save-slot naming. The real BeamMP nickname is still used for multiplayer behavior.
