@@ -164,9 +164,60 @@ local function isBetterCareerBootReady()
 \treturn true, nil
 end
 
-local function startBetterCareerCareer()
-\tif careerMPActive or not clientConfig then
+local function refreshBetterCareerRuntime(reason)
+\tif extensions and extensions.load then
+\t\tpcall(function() extensions.load("bcm_extensionManager") end)
+\tend
+\tlocal manager = getGlobalOrExtension("bcm_extensionManager")
+\tif manager and type(manager.onExtensionLoaded) == "function" then
+\t\tpcall(function() manager.onExtensionLoaded() end)
+\tend
+\tif core_input_actions and core_input_actions.onFileChanged then
+\t\tpcall(function() core_input_actions.onFileChanged("/lua/ge/extensions/core/input/actions/bcm_phone.json") end)
+\t\tpcall(function() core_input_actions.onFileChanged("/lua/ge/extensions/core/input/actions/bcm_devtoolV2.json") end)
+\tend
+\tif core_input_bindings and core_input_bindings.onFileChanged then
+\t\tpcall(function() core_input_bindings.onFileChanged("/lua/ge/extensions/core/input/actions/bcm_phone.json") end)
+\t\tpcall(function() core_input_bindings.onFileChanged("/lua/ge/extensions/core/input/actions/bcm_devtoolV2.json") end)
+\tend
+\tlog("W", "careerMP", "Refreshed Better Career runtime for CareerMP bridge: " .. tostring(reason))
+end
+
+local function isBetterCareerSessionHealthy()
+\tlocal career = getBetterCareerCareer()
+\tlocal active = false
+\tif career and type(career.isActive) == "function" then
+\t\tpcall(function() active = career.isActive() == true end)
+\tend
+\tif not active then
+\t\treturn false, "career inactive"
+\tend
+\tif not getGlobalOrExtension("bcm_phone") then
+\t\treturn false, "bcm_phone missing"
+\tend
+\tif not getGlobalOrExtension("career_modules_garageManager") then
+\t\treturn false, "garageManager missing"
+\tend
+\tif not getGlobalOrExtension("career_modules_playerAttributes") then
+\t\treturn false, "playerAttributes missing"
+\tend
+\treturn true, nil
+end
+
+local function startBetterCareerCareer(forceRestart, reason)
+\tif not clientConfig then
 \t\treturn true
+\tend
+\tlocal healthy, unhealthyReason = isBetterCareerSessionHealthy()
+\tif careerMPActive and healthy and not forceRestart then
+\t\treturn true
+\tend
+\tif careerMPActive and not healthy then
+\t\tlog("W", "careerMP", "CareerMP bridge marked active but Better Career is unhealthy: " .. tostring(unhealthyReason))
+\tend
+\tif forceRestart or not healthy then
+\t\tcareerMPActive = false
+\t\trefreshBetterCareerRuntime(reason or unhealthyReason or "session start")
 \tend
 \tlocal ready, reason = isBetterCareerBootReady()
 \tif not ready then
@@ -201,9 +252,8 @@ end
         "\t\tcareer_career.createOrLoadCareerAndStart(nickname .. clientConfig.serverSaveSuffix, false, false)\n"
         "\t\tcareerMPActive = true\n"
         "\tend\n",
-        "\tif not careerMPActive then\n"
-        "\t\tstartBetterCareerCareer()\n"
-        "\tend\n",
+        "\tcareerMPActive = false\n"
+        "\tstartBetterCareerCareer(true, \"rxCareerSync\")\n",
         path,
         "CareerMP save start",
     )
@@ -211,7 +261,7 @@ end
     text = replace_once(
         text,
         "local function onUpdate(dtReal, dtSim, dtRaw)\n\tpatchBeamMP()\n",
-        "local function onUpdate(dtReal, dtSim, dtRaw)\n\tif clientConfig and not careerMPActive then\n\t\tstartBetterCareerCareer()\n\tend\n\tpatchBeamMP()\n",
+        "local function onUpdate(dtReal, dtSim, dtRaw)\n\tif clientConfig and not careerMPActive then\n\t\tstartBetterCareerCareer(false, \"onUpdate retry\")\n\tend\n\tpatchBeamMP()\n",
         path,
         "Better Career retry on update",
     )
@@ -229,8 +279,10 @@ end
         "\tblockedInputActions = {}\n"
         "\tsettingsCheck()\n"
         "\tactionsCheck()\n"
-        "\tif not careerMPActive then\n"
-        "\t\tstartBetterCareerCareer()\n"
+        "\tlocal healthy = false\n"
+        "\tpcall(function() healthy = isBetterCareerSessionHealthy() end)\n"
+        "\tif not careerMPActive or not healthy then\n"
+        "\t\tstartBetterCareerCareer(true, \"rxClientConfigUpdate\")\n"
         "\tend\n"
         "end\n",
         path,
@@ -982,8 +1034,11 @@ def validate_outputs(args: argparse.Namespace, artifacts: dict[str, object], tes
         "forbidden_career_replacements": forbidden,
         "enabler_uses_better_career": "startBetterCareerCareer" in enabler,
         "enabler_waits_for_bcm_boot": "isBetterCareerBootReady" in enabler,
+        "enabler_checks_bcm_session_health": "isBetterCareerSessionHealthy" in enabler,
+        "enabler_refreshes_bcm_runtime": "refreshBetterCareerRuntime" in enabler,
+        "enabler_forces_restart_on_career_sync": 'startBetterCareerCareer(true, "rxCareerSync")' in enabler,
         "enabler_resets_on_server_leave": "CareerMP session reset after server leave" in enabler,
-        "enabler_restarts_on_config_update": "local function rxClientConfigUpdate" in enabler and "\t\tstartBetterCareerCareer()\n\tend\nend\n\nlocal function onCareerActive" in enabler,
+        "enabler_restarts_on_config_update": 'startBetterCareerCareer(true, "rxClientConfigUpdate")' in enabler,
         "enabler_does_not_force_career_mp": "career_careerMP" not in enabler,
         "modscript_does_not_load_career_mp": "/career/careerMP" not in modscript,
         "careermp_walk_repositions_existing_unicycle": "repositionUnicycle" in walk,
@@ -1007,6 +1062,9 @@ def validate_outputs(args: argparse.Namespace, artifacts: dict[str, object], tes
         and not forbidden
         and validation["enabler_uses_better_career"]
         and validation["enabler_waits_for_bcm_boot"]
+        and validation["enabler_checks_bcm_session_health"]
+        and validation["enabler_refreshes_bcm_runtime"]
+        and validation["enabler_forces_restart_on_career_sync"]
         and validation["enabler_resets_on_server_leave"]
         and validation["enabler_restarts_on_config_update"]
         and validation["enabler_does_not_force_career_mp"]

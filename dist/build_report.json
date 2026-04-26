@@ -2,8 +2,8 @@
   "client": {
     "entries": 392,
     "path": "C:\\Users\\bruni\\Documents\\PROJETOS\\Jogos\\BEANG\\mods\\generated\\CareerMP_BetterCareer.zip",
-    "sha256": "630e7974b0c1fb0d91d99da429468cf8c5b3cdeafbb1858a3b3d1a9ecaf3a887",
-    "size": 28292477
+    "sha256": "202fb9be2d695539e1e250aed33eed86d1d815f55050c009403c113f109e63ae",
+    "size": 28292910
   },
   "server": {
     "entries": 4,
@@ -26,7 +26,10 @@
       "port": 30832
     },
     "careermp_walk_repositions_existing_unicycle": true,
+    "enabler_checks_bcm_session_health": true,
     "enabler_does_not_force_career_mp": true,
+    "enabler_forces_restart_on_career_sync": true,
+    "enabler_refreshes_bcm_runtime": true,
     "enabler_resets_on_server_leave": true,
     "enabler_restarts_on_config_update": true,
     "enabler_uses_better_career": true,
