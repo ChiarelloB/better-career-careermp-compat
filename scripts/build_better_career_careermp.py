@@ -108,6 +108,14 @@ def patch_careermp_modscript(entries: dict[str, bytes]) -> None:
     path = "scripts/CareerMP/modScript.lua"
     text = entries[path].decode("utf-8").replace("\r\n", "\n")
     text = text.replace("\nload('/career/careerMP')\nsetExtensionUnloadMode('/career/careerMP', 'manual')\n", "\n")
+    bootstrap = """-- Better Career must bootstrap before the CareerMP bridge.
+-- BeamMP can execute mod scripts in an order where CareerMP starts first.
+setExtensionUnloadMode("bcm_extensionManager", "manual")
+load("bcm_extensionManager")
+
+"""
+    if "load(\"bcm_extensionManager\")" not in text:
+        text = bootstrap + text
     if "/career/careerMP" in text:
         raise RuntimeError("CareerMP modScript still loads /career/careerMP.")
     entries[path] = text.encode("utf-8")
@@ -164,60 +172,9 @@ local function isBetterCareerBootReady()
 \treturn true, nil
 end
 
-local function refreshBetterCareerRuntime(reason)
-\tif extensions and extensions.load then
-\t\tpcall(function() extensions.load("bcm_extensionManager") end)
-\tend
-\tlocal manager = getGlobalOrExtension("bcm_extensionManager")
-\tif manager and type(manager.onExtensionLoaded) == "function" then
-\t\tpcall(function() manager.onExtensionLoaded() end)
-\tend
-\tif core_input_actions and core_input_actions.onFileChanged then
-\t\tpcall(function() core_input_actions.onFileChanged("/lua/ge/extensions/core/input/actions/bcm_phone.json") end)
-\t\tpcall(function() core_input_actions.onFileChanged("/lua/ge/extensions/core/input/actions/bcm_devtoolV2.json") end)
-\tend
-\tif core_input_bindings and core_input_bindings.onFileChanged then
-\t\tpcall(function() core_input_bindings.onFileChanged("/lua/ge/extensions/core/input/actions/bcm_phone.json") end)
-\t\tpcall(function() core_input_bindings.onFileChanged("/lua/ge/extensions/core/input/actions/bcm_devtoolV2.json") end)
-\tend
-\tlog("W", "careerMP", "Refreshed Better Career runtime for CareerMP bridge: " .. tostring(reason))
-end
-
-local function isBetterCareerSessionHealthy()
-\tlocal career = getBetterCareerCareer()
-\tlocal active = false
-\tif career and type(career.isActive) == "function" then
-\t\tpcall(function() active = career.isActive() == true end)
-\tend
-\tif not active then
-\t\treturn false, "career inactive"
-\tend
-\tif not getGlobalOrExtension("bcm_phone") then
-\t\treturn false, "bcm_phone missing"
-\tend
-\tif not getGlobalOrExtension("career_modules_garageManager") then
-\t\treturn false, "garageManager missing"
-\tend
-\tif not getGlobalOrExtension("career_modules_playerAttributes") then
-\t\treturn false, "playerAttributes missing"
-\tend
-\treturn true, nil
-end
-
-local function startBetterCareerCareer(forceRestart, reason)
-\tif not clientConfig then
+local function startBetterCareerCareer()
+\tif careerMPActive or not clientConfig then
 \t\treturn true
-\tend
-\tlocal healthy, unhealthyReason = isBetterCareerSessionHealthy()
-\tif careerMPActive and healthy and not forceRestart then
-\t\treturn true
-\tend
-\tif careerMPActive and not healthy then
-\t\tlog("W", "careerMP", "CareerMP bridge marked active but Better Career is unhealthy: " .. tostring(unhealthyReason))
-\tend
-\tif forceRestart or not healthy then
-\t\tcareerMPActive = false
-\t\trefreshBetterCareerRuntime(reason or unhealthyReason or "session start")
 \tend
 \tlocal ready, reason = isBetterCareerBootReady()
 \tif not ready then
@@ -252,8 +209,9 @@ end
         "\t\tcareer_career.createOrLoadCareerAndStart(nickname .. clientConfig.serverSaveSuffix, false, false)\n"
         "\t\tcareerMPActive = true\n"
         "\tend\n",
-        "\tcareerMPActive = false\n"
-        "\tstartBetterCareerCareer(true, \"rxCareerSync\")\n",
+        "\tif not careerMPActive then\n"
+        "\t\tstartBetterCareerCareer()\n"
+        "\tend\n",
         path,
         "CareerMP save start",
     )
@@ -261,7 +219,7 @@ end
     text = replace_once(
         text,
         "local function onUpdate(dtReal, dtSim, dtRaw)\n\tpatchBeamMP()\n",
-        "local function onUpdate(dtReal, dtSim, dtRaw)\n\tif clientConfig and not careerMPActive then\n\t\tstartBetterCareerCareer(false, \"onUpdate retry\")\n\tend\n\tpatchBeamMP()\n",
+        "local function onUpdate(dtReal, dtSim, dtRaw)\n\tif clientConfig and not careerMPActive then\n\t\tstartBetterCareerCareer()\n\tend\n\tpatchBeamMP()\n",
         path,
         "Better Career retry on update",
     )
@@ -279,10 +237,8 @@ end
         "\tblockedInputActions = {}\n"
         "\tsettingsCheck()\n"
         "\tactionsCheck()\n"
-        "\tlocal healthy = false\n"
-        "\tpcall(function() healthy = isBetterCareerSessionHealthy() end)\n"
-        "\tif not careerMPActive or not healthy then\n"
-        "\t\tstartBetterCareerCareer(true, \"rxClientConfigUpdate\")\n"
+        "\tif not careerMPActive then\n"
+        "\t\tstartBetterCareerCareer()\n"
         "\tend\n"
         "end\n",
         path,
@@ -788,7 +744,7 @@ def patch_better_career_facilities_travel(entries: dict[str, bytes]) -> None:
     entries[path] = text.encode("utf-8")
 
 
-def patch_server_entries(entries: dict[str, bytes]) -> dict[str, object]:
+def patch_server_entries(entries: dict[str, bytes], save_suffix: str) -> dict[str, object]:
     path = "Resources/Server/CareerMP/careerMP.lua"
     text = entries[path].decode("utf-8").replace("\r\n", "\n")
     text = replace_once(text, "\t\tautoUpdate = true,\n", "\t\tautoUpdate = false,\n", path, "server autoUpdate default")
@@ -824,7 +780,7 @@ def patch_server_entries(entries: dict[str, bytes]) -> dict[str, object]:
             "allGhost": False,
             "unicycleGhost": True,
             "serverSaveName": "",
-            "serverSaveSuffix": "_BetterCareerMP",
+            "serverSaveSuffix": save_suffix,
             "serverSaveNameEnabled": False,
             "roadTrafficAmount": 0,
             "parkedTrafficAmount": 0,
@@ -876,7 +832,7 @@ def build_artifacts(args: argparse.Namespace) -> dict[str, object]:
         if name in FORBIDDEN_ORIGINAL_CAREERMP_CLIENT_FILES:
             raise RuntimeError(f"Unexpected original CareerMP career replacement in client zip: {name}")
 
-    server_config = patch_server_entries(server_entries)
+    server_config = patch_server_entries(server_entries, args.server_save_suffix)
 
     client_out = out_dir / CLIENT_OUT_NAME
     server_out = out_dir / SERVER_OUT_NAME
@@ -1034,11 +990,9 @@ def validate_outputs(args: argparse.Namespace, artifacts: dict[str, object], tes
         "forbidden_career_replacements": forbidden,
         "enabler_uses_better_career": "startBetterCareerCareer" in enabler,
         "enabler_waits_for_bcm_boot": "isBetterCareerBootReady" in enabler,
-        "enabler_checks_bcm_session_health": "isBetterCareerSessionHealthy" in enabler,
-        "enabler_refreshes_bcm_runtime": "refreshBetterCareerRuntime" in enabler,
-        "enabler_forces_restart_on_career_sync": 'startBetterCareerCareer(true, "rxCareerSync")' in enabler,
+        "modscript_bootstraps_better_career_first": 'load("bcm_extensionManager")' in modscript,
         "enabler_resets_on_server_leave": "CareerMP session reset after server leave" in enabler,
-        "enabler_restarts_on_config_update": 'startBetterCareerCareer(true, "rxClientConfigUpdate")' in enabler,
+        "enabler_restarts_on_config_update": "local function rxClientConfigUpdate" in enabler and "\t\tstartBetterCareerCareer()\n\tend\nend\n\nlocal function onCareerActive" in enabler,
         "enabler_does_not_force_career_mp": "career_careerMP" not in enabler,
         "modscript_does_not_load_career_mp": "/career/careerMP" not in modscript,
         "careermp_walk_repositions_existing_unicycle": "repositionUnicycle" in walk,
@@ -1062,9 +1016,7 @@ def validate_outputs(args: argparse.Namespace, artifacts: dict[str, object], tes
         and not forbidden
         and validation["enabler_uses_better_career"]
         and validation["enabler_waits_for_bcm_boot"]
-        and validation["enabler_checks_bcm_session_health"]
-        and validation["enabler_refreshes_bcm_runtime"]
-        and validation["enabler_forces_restart_on_career_sync"]
+        and validation["modscript_bootstraps_better_career_first"]
         and validation["enabler_resets_on_server_leave"]
         and validation["enabler_restarts_on_config_update"]
         and validation["enabler_does_not_force_career_mp"]
@@ -1123,6 +1075,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--template-server", type=Path, default=DEFAULT_TEMPLATE_SERVER)
     parser.add_argument("--test-server", type=Path, default=DEFAULT_TEST_SERVER)
     parser.add_argument("--server-port", type=int, default=SERVER_PORT)
+    parser.add_argument("--server-save-suffix", default="_BetterCareerMP")
     parser.add_argument("--skip-test-server", action="store_true")
     parser.add_argument("--boot-check", action="store_true")
     parser.add_argument("--boot-timeout", type=int, default=30)
