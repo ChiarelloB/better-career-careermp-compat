@@ -120,7 +120,7 @@ def patch_careermp_enabler(entries: dict[str, bytes]) -> None:
     text = replace_once(
         text,
         "local careerMPActive = false\nlocal syncRequested = false\n",
-        "local careerMPActive = false\nlocal syncRequested = false\nlocal waitingForBetterCareer = false\n\n",
+        "local careerMPActive = false\nlocal syncRequested = false\nlocal waitingForBetterCareer = false\nlocal betterCareerUIReloadRequested = false\nlocal betterCareerUIReloadWait = 0\n\n",
         path,
         "Better Career wait state",
     )
@@ -158,10 +158,210 @@ local function isBetterCareerBootReady()
 \t\tend
 \t\treturn false, "bcm_extensionManager"
 \tend
-\tif not getGlobalOrExtension("bcm_settings") or not getGlobalOrExtension("bcm_garages") or not getGlobalOrExtension("bcm_banking") then
-\t\treturn false, "BCM core modules"
+\tlocal requiredBetterCareerModules = {
+\t\t"bcm_settings",
+\t\t"bcm_timeSystem",
+\t\t"bcm_phone",
+\t\t"bcm_notifications",
+\t\t"bcm_appRegistry",
+\t\t"bcm_identity",
+\t\t"bcm_contacts",
+\t\t"bcm_email",
+\t\t"bcm_chat",
+\t\t"bcm_transactionCategories",
+\t\t"bcm_banking",
+\t\t"bcm_creditScore",
+\t\t"bcm_loans",
+\t\t"bcm_loanApp",
+\t\t"bcm_sleepManager",
+\t\t"bcm_weather",
+\t\t"bcm_weatherForecast",
+\t\t"bcm_weatherApp",
+\t\t"bcm_breakingNews",
+\t\t"bcm_properties",
+\t\t"bcm_garages",
+\t\t"bcm_parkingProtector",
+\t\t"bcm_partsMetadata",
+\t\t"bcm_partsOrders",
+\t\t"bcm_partsShopApp",
+\t\t"bcm_fixdProApp",
+\t\t"bcm_garageManagerApp",
+\t\t"bcm_paintApp",
+\t\t"bcm_dynoApp",
+\t\t"bcm_vehicleGalleryApp",
+\t\t"bcm_realEstateApp",
+\t\t"bcm_rentals",
+\t\t"bcm_marketplaceApp",
+\t\t"bcm_dealershipApp",
+\t\t"bcm_negotiation",
+\t\t"bcm_defects",
+\t\t"bcm_police",
+\t\t"bcm_heatSystem",
+\t\t"bcm_heatApp",
+\t\t"bcm_fines",
+\t\t"bcm_policeHud",
+\t\t"gameplay_police",
+\t\t"bcm_policeDamage",
+\t\t"bcm_contracts",
+\t\t"bcm_virtualCargo",
+\t\t"bcm_planex",
+\t\t"bcm_planexApp",
+\t\t"bcm_multimap",
+\t\t"bcm_transitJournal",
+\t\t"bcm_multimapApp",
+\t\t"bcm_trailerCoupling",
+\t\t"bcm_propsRemover",
+\t\t"bcm_tutorial",
+\t\t"bcm_clockApp",
+\t\t"bcm_bankApp",
+\t\t"bcm_settingsApp",
+\t\t"bcm_calendarApp",
+\t\t"bcm_walletApp",
+\t\t"bcm_contactsApp",
+\t\t"bcm_chatApp",
+\t}
+\tfor _, moduleName in ipairs(requiredBetterCareerModules) do
+\t\tif not getGlobalOrExtension(moduleName) then
+\t\t\tif extensions and extensions.load then
+\t\t\t\tpcall(function() extensions.load(moduleName) end)
+\t\t\tend
+\t\t\treturn false, moduleName
+\t\tend
 \tend
 \treturn true, nil
+end
+
+local function isBeamMPActive()
+\treturn rawget(_G, "MPConfig") ~= nil or rawget(_G, "MPVehicleGE") ~= nil
+end
+
+local function reloadBetterCareerUIOnce()
+\tif betterCareerUIReloadRequested or not isBeamMPActive() then
+\t\treturn false
+\tend
+\tif type(reloadUI) ~= "function" then
+\t\treturn false
+\tend
+\tbetterCareerUIReloadRequested = true
+\tbetterCareerUIReloadWait = 0
+\tlog("W", "careerMP", "Reloading UI once so Better Career Vue assets mount after BeamMP mod download")
+\tpcall(function() reloadUI() end)
+\treturn true
+end
+
+local function sanitizeSaveNamePart(value, fallback)
+	local cleaned = tostring(value or ""):gsub("[^%w_%-]", "_")
+	cleaned = cleaned:gsub("_+", "_"):gsub("^_+", ""):gsub("_+$", "")
+	if cleaned == "" then
+		return fallback or "CareerMPGuest"
+	end
+	return cleaned
+end
+
+local function isGuestNickname(value)
+	return type(value) == "string" and value:match("^guest%d+$") ~= nil
+end
+
+local function saveSlotUsesSuffix(slotName, suffix)
+	return type(slotName) == "string" and suffix ~= "" and slotName:sub(-#suffix) == suffix
+end
+
+local function findLatestGuestSaveBaseNameForSuffix(suffix)
+	if suffix == "" then
+		return nil
+	end
+	local saveSystem = getGlobalOrExtension("career_saveSystem")
+	if not saveSystem or type(saveSystem.getAllSaveSlots) ~= "function" then
+		return nil
+	end
+	local ok, slots = pcall(saveSystem.getAllSaveSlots)
+	if not ok or type(slots) ~= "table" then
+		return nil
+	end
+
+	local newestBaseName
+	local newestDate = ""
+	for _, slotName in ipairs(slots) do
+		if saveSlotUsesSuffix(slotName, suffix) then
+			local baseName = slotName:sub(1, #slotName - #suffix)
+			if isGuestNickname(baseName) then
+				local date = "0"
+				if type(saveSystem.getAutosave) == "function" then
+					local autoOk, _, autosaveDate = pcall(saveSystem.getAutosave, slotName, false)
+					if autoOk and autosaveDate then
+						date = tostring(autosaveDate)
+					end
+				end
+				if not newestBaseName or date > newestDate then
+					newestBaseName = baseName
+					newestDate = date
+				end
+			end
+		end
+	end
+
+	return newestBaseName
+end
+
+local function writeGuestIdentity(path, data)
+	local ok, result = pcall(function()
+		return jsonWriteFile(path, data, true)
+	end)
+	if not ok or not result then
+		log("E", "careerMP", "Failed to persist Better Career guest save identity: " .. tostring(path))
+		return false
+	end
+	return true
+end
+
+local function getStableGuestSaveBaseName()
+	local suffix = clientConfig and clientConfig.serverSaveSuffix or ""
+	local key = sanitizeSaveNamePart(suffix ~= "" and suffix or "default", "default")
+	local dir = "settings/careerMPBetterCareer"
+	local path = dir .. "/guestSaveIdentity.json"
+	if FS and type(FS.directoryExists) == "function" and not FS:directoryExists(dir) and type(FS.directoryCreate) == "function" then
+		FS:directoryCreate(dir)
+	end
+
+	local data = jsonReadFile(path) or {}
+	if type(data) ~= "table" then
+		data = {}
+	end
+	if type(data.servers) ~= "table" then
+		data.servers = {}
+	end
+
+	local storedBaseName = data.servers[key]
+	if type(storedBaseName) == "string" and storedBaseName ~= "" then
+		return sanitizeSaveNamePart(storedBaseName, "CareerMPGuest")
+	end
+
+	local migratedBaseName = findLatestGuestSaveBaseNameForSuffix(suffix)
+	if migratedBaseName then
+		data.servers[key] = migratedBaseName
+		writeGuestIdentity(path, data)
+		log("W", "careerMP", "Reusing existing BeamMP guest Better Career save identity: " .. migratedBaseName)
+		return migratedBaseName
+	end
+
+	local seed = tostring(os.time()) .. "_" .. tostring(math.random(100000, 999999))
+	local newBaseName = sanitizeSaveNamePart("guestLocal_" .. seed, "CareerMPGuest")
+	data.servers[key] = newBaseName
+	writeGuestIdentity(path, data)
+	log("W", "careerMP", "Created stable Better Career guest save identity: " .. newBaseName)
+	return newBaseName
+end
+
+local function resolveBetterCareerSaveName()
+	local suffix = clientConfig and clientConfig.serverSaveSuffix or ""
+	local baseName = nickname
+	if clientConfig and clientConfig.serverSaveNameEnabled then
+		baseName = clientConfig.serverSaveName
+	elseif isGuestNickname(baseName) then
+		baseName = getStableGuestSaveBaseName()
+	end
+	baseName = sanitizeSaveNamePart(baseName, "CareerMPGuest")
+	return baseName .. suffix
 end
 
 local function startBetterCareerCareer()
@@ -176,11 +376,14 @@ local function startBetterCareerCareer()
 \t\tend
 \t\treturn false
 \tend
-\tlocal career = getBetterCareerCareer()
-\tif clientConfig.serverSaveNameEnabled then
-\t\tnickname = clientConfig.serverSaveName
+\tif reloadBetterCareerUIOnce() then
+\t\treturn false
 \tend
-\tlocal saveName = nickname .. (clientConfig.serverSaveSuffix or "")
+\tif betterCareerUIReloadRequested and betterCareerUIReloadWait < 2 then
+\t\treturn false
+\tend
+\tlocal career = getBetterCareerCareer()
+\tlocal saveName = resolveBetterCareerSaveName()
 \tlocal currentLevel = getCurrentLevelIdentifier and getCurrentLevelIdentifier() or nil
 \tcareer.createOrLoadCareerAndStart(saveName, false, false, nil, nil, nil, currentLevel)
 \tcareerMPActive = true
@@ -211,7 +414,7 @@ end
     text = replace_once(
         text,
         "local function onUpdate(dtReal, dtSim, dtRaw)\n\tpatchBeamMP()\n",
-        "local function onUpdate(dtReal, dtSim, dtRaw)\n\tif clientConfig and not careerMPActive then\n\t\tstartBetterCareerCareer()\n\tend\n\tpatchBeamMP()\n",
+        "local function onUpdate(dtReal, dtSim, dtRaw)\n\tif betterCareerUIReloadRequested and not careerMPActive then\n\t\tbetterCareerUIReloadWait = betterCareerUIReloadWait + (dtReal or 0)\n\tend\n\tif clientConfig and not careerMPActive then\n\t\tstartBetterCareerCareer()\n\tend\n\tpatchBeamMP()\n",
         path,
         "Better Career retry on update",
     )
@@ -418,6 +621,56 @@ def patch_better_career_spawn_manager(entries: dict[str, bytes]) -> None:
     )
     text = replace_once(
         text,
+        """  log("I", logTag, "=== Initializing new career spawn ===")
+
+  -- 1. Remove default-spawned vehicles (Covet etc.)
+""",
+        """  log("I", logTag, "=== Initializing new career spawn ===")
+
+  -- BeamMP can start the save while Better Career's late first-run modules are
+  -- still being reloaded after level start. Force the two tutorial gatekeepers
+  -- to be present before deciding between tutorial spawn and garage fallback.
+  if rawget(_G, "MPVehicleGE") ~= nil then
+    for _, moduleName in ipairs({"bcm_identity", "bcm_tutorial"}) do
+      if not rawget(_G, moduleName) and extensions and extensions.load then
+        pcall(function() extensions.load(moduleName) end)
+      end
+    end
+    if bcm_identity and bcm_identity.onCareerModulesActivated then
+      pcall(function() bcm_identity.onCareerModulesActivated() end)
+    end
+    if bcm_tutorial and bcm_tutorial.onCareerActive then
+      pcall(function() bcm_tutorial.onCareerActive(true) end)
+    end
+  end
+
+  -- 1. Remove default-spawned vehicles (Covet etc.)
+""",
+        path,
+        "ensure Better Career first-run modules before spawn",
+    )
+    text = replace_once(
+        text,
+        """  -- 7. Emit hook for tutorial system
+  extensions.hook("onFirstCareerStart")
+  log("I", logTag, "=== First career start complete ===")
+""",
+        """  -- 7. Emit hook for tutorial system. BeamMP may reload the extension during
+  -- MP setup, so also call the module directly when it is available.
+  extensions.hook("onFirstCareerStart")
+  if bcm_tutorial and bcm_tutorial.onFirstCareerStart then
+    pcall(function() bcm_tutorial.onFirstCareerStart() end)
+  end
+  if bcm_identity and bcm_identity.sendIdentityToUI then
+    pcall(function() bcm_identity.sendIdentityToUI() end)
+  end
+  log("I", logTag, "=== First career start complete ===")
+""",
+        path,
+        "direct BeamMP first-career tutorial hook",
+    )
+    text = replace_once(
+        text,
         """      local playerVehId = be:getPlayerVehicleID(0)
       if not playerVehId or playerVehId < 0 then
         log("W", logTag, "No player vehicle after career load, placing at spawn point")
@@ -445,6 +698,204 @@ def patch_better_career_spawn_manager(entries: dict[str, bytes]) -> None:
 """,
         path,
         "anchor existing BeamMP walking save",
+    )
+    entries[path] = text.encode("utf-8")
+
+
+def patch_better_career_identity(entries: dict[str, bytes]) -> None:
+    path = "lua/ge/extensions/bcm/identity.lua"
+    text = entries[path].decode("utf-8").replace("\r\n", "\n")
+
+    text = replace_once(
+        text,
+        """local onSaveCurrentSaveSlot
+local onBeforeSetSaveSlot
+""",
+        """local onSaveCurrentSaveSlot
+local onBeforeSetSaveSlot
+local onUpdate
+local ensureBeamMPFallbackIdentity
+""",
+        path,
+        "identity retry forward declaration",
+    )
+    text = replace_once(
+        text,
+        """local identityData = nil
+local activated = false
+""",
+        """local identityData = nil
+local activated = false
+local modalRetryTimer = 0
+local modalRetryAttempts = 0
+""",
+        path,
+        "identity retry state",
+    )
+    text = replace_once(
+        text,
+        """  guihooks.trigger('BCMIdentityUpdate', identityData)
+  guihooks.trigger('BCMIdentityModalDone', {})
+""",
+        """  modalRetryTimer = 0
+  modalRetryAttempts = 0
+  guihooks.trigger('BCMIdentityUpdate', identityData)
+  guihooks.trigger('BCMIdentityModalDone', {})
+""",
+        path,
+        "identity retry reset after submit",
+    )
+    text = replace_once(
+        text,
+        """onBeforeSetSaveSlot = function()
+  identityData = nil
+  activated = false
+  guihooks.trigger('BCMIdentityReset', {})
+  log('D', 'bcm_identity', 'Identity state reset (save slot change)')
+end
+""",
+        """onBeforeSetSaveSlot = function()
+  identityData = nil
+  activated = false
+  modalRetryTimer = 0
+  modalRetryAttempts = 0
+  guihooks.trigger('BCMIdentityReset', {})
+  log('D', 'bcm_identity', 'Identity state reset (save slot change)')
+end
+
+ensureBeamMPFallbackIdentity = function()
+  if identityData then return true end
+  if rawget(_G, "MPConfig") == nil and rawget(_G, "MPVehicleGE") == nil then return false end
+
+  local playerName = "BeamMP"
+  local mpConfig = rawget(_G, "MPConfig")
+  if mpConfig and type(mpConfig.getNickname) == "function" then
+    local ok, nickname = pcall(mpConfig.getNickname)
+    if ok and nickname and tostring(nickname) ~= "" then
+      playerName = tostring(nickname)
+    end
+  end
+
+  local firstName = tostring(playerName):gsub("[^%w_%-]", "")
+  if firstName == "" then firstName = "BeamMP" end
+  local payload = {
+    firstName = firstName,
+    lastName = "Driver",
+    sex = "other",
+    birthday = "01/01/2000",
+    rejectionCount = 0
+  }
+
+  log('W', 'bcm_identity', 'BeamMP identity form did not mount; auto-generating identity for ' .. firstName)
+  return setIdentity(jsonEncode(payload))
+end
+
+onUpdate = function(dtReal)
+  if not activated or identityData then return end
+  if not career_career or not career_career.isActive or not career_career.isActive() then return end
+
+  modalRetryTimer = modalRetryTimer + (dtReal or 0)
+  if modalRetryTimer >= 3 then
+    modalRetryTimer = 0
+    modalRetryAttempts = modalRetryAttempts + 1
+    log('I', 'bcm_identity', 'Identity modal retry for BeamMP late UI')
+    guihooks.trigger('BCMShowIdentityModal', {})
+    if modalRetryAttempts >= 4 then
+      ensureBeamMPFallbackIdentity()
+    end
+  end
+end
+""",
+        path,
+        "identity modal retry for BeamMP",
+    )
+    text = replace_once(
+        text,
+        """M.onCareerModulesActivated = onCareerModulesActivated
+M.onSaveCurrentSaveSlot = onSaveCurrentSaveSlot
+M.onBeforeSetSaveSlot = onBeforeSetSaveSlot
+""",
+        """M.onCareerModulesActivated = onCareerModulesActivated
+M.onSaveCurrentSaveSlot = onSaveCurrentSaveSlot
+M.onBeforeSetSaveSlot = onBeforeSetSaveSlot
+M.onUpdate = onUpdate
+M.ensureBeamMPFallbackIdentity = ensureBeamMPFallbackIdentity
+""",
+        path,
+        "identity retry public hook",
+    )
+    entries[path] = text.encode("utf-8")
+
+
+def patch_better_career_tutorial(entries: dict[str, bytes]) -> None:
+    path = "lua/ge/extensions/bcm/tutorial.lua"
+    text = entries[path].decode("utf-8").replace("\r\n", "\n")
+
+    marker = "M.onExtensionLoaded = function()\n"
+    start = text.find(marker)
+    if start < 0:
+        raise RuntimeError(f"Could not patch recover missed BeamMP tutorial start in {path}; onExtensionLoaded was not found.")
+
+    insert_after = "    onCareerActive(true)\n"
+    insert_at = text.find(insert_after, start)
+    if insert_at < 0:
+        raise RuntimeError(
+            f"Could not patch recover missed BeamMP tutorial start in {path}; onCareerActive reload hook was not found."
+        )
+    insert_at += len(insert_after)
+
+    recovery = """
+
+    -- BeamMP can reload bcm_tutorial after bcm_spawnManager has already emitted
+    -- onFirstCareerStart. Recover that missed hook so the D.U.M.B. identity
+    -- modal and step 1 tasklist appear instead of leaving currentStep at 0.
+    if tutorialData
+      and not tutorialData.tutorialDone
+      and not tutorialData.tutorialSkipped
+      and (tutorialData.currentStep or 0) == 0 then
+      log('W', logTag, 'Recovering missed first-career tutorial start after BeamMP reload')
+      onFirstCareerStart()
+      if bcm_identity and bcm_identity.sendIdentityToUI then
+        pcall(function() bcm_identity.sendIdentityToUI() end)
+      end
+    end"""
+    if recovery.strip() not in text:
+        text = text[:insert_at] + recovery + text[insert_at:]
+    entries[path] = text.encode("utf-8")
+    return
+
+    text = replace_once(
+        text,
+        """M.onExtensionLoaded = function()
+  if career_career and career_career.isActive() then
+    log('I', logTag, 'Extension reloaded while career active — re-initializing')
+    onCareerActive(true)
+  end
+end
+""",
+        """M.onExtensionLoaded = function()
+  if career_career and career_career.isActive() then
+    log('I', logTag, 'Extension reloaded while career active — re-initializing')
+    onCareerActive(true)
+
+    -- BeamMP can reload bcm_tutorial after bcm_spawnManager has already emitted
+    -- onFirstCareerStart. Recover that missed hook so the D.U.M.B. identity
+    -- modal and step 1 tasklist appear instead of leaving currentStep at 0.
+    if tutorialData
+      and not tutorialData.tutorialDone
+      and not tutorialData.tutorialSkipped
+      and (tutorialData.currentStep or 0) == 0 then
+      log('W', logTag, 'Recovering missed first-career tutorial start after BeamMP reload')
+      onFirstCareerStart()
+      if bcm_identity and bcm_identity.sendIdentityToUI then
+        pcall(function() bcm_identity.sendIdentityToUI() end)
+      end
+    end
+  end
+end
+""",
+        path,
+        "recover missed BeamMP tutorial start",
     )
     entries[path] = text.encode("utf-8")
 
@@ -551,6 +1002,204 @@ local function setWalkingMode(enabled, pos, rot, force)
 end
 """
     text = replace_once(text, old, new, path, "BeamMP walking reposition")
+    entries[path] = text.encode("utf-8")
+
+
+def patch_careermp_per_part_paint(entries: dict[str, bytes]) -> None:
+    path = "lua/ge/extensions/careerMPPerPartPaint.lua"
+    text = entries[path].decode("utf-8").replace("\r\n", "\n")
+
+    text = replace_once(
+        text,
+        """local pendingPaints = {}
+local pendingRemotePaints = {}
+local ensuredPartConditionsByVeh = {}
+""",
+        """local pendingPaints = {}
+local pendingRemotePaints = {}
+local ensuredPartConditionsByVeh = {}
+local maxPendingPaintAttempts = 120
+
+local function getPendingInventoryId(entry)
+\tif type(entry) == "table" then
+\t\treturn entry.inventoryId
+\tend
+\treturn entry
+end
+
+local function queuePendingPartPaint(inventoryId, serverVehicleID, originID)
+\tif not inventoryId then
+\t\treturn
+\tend
+\tfor _, entry in ipairs(pendingPaints) do
+\t\tlocal entryInventoryId = getPendingInventoryId(entry)
+\t\tlocal entryServerVehicleID = type(entry) == "table" and entry.serverVehicleID or nil
+\t\tlocal entryOriginID = type(entry) == "table" and entry.originID or nil
+\t\tif entryInventoryId == inventoryId and entryServerVehicleID == serverVehicleID and entryOriginID == originID then
+\t\t\treturn
+\t\tend
+\tend
+\ttable.insert(pendingPaints, {
+\t\tinventoryId = inventoryId,
+\t\tserverVehicleID = serverVehicleID,
+\t\toriginID = originID,
+\t\tattempts = 0
+\t})
+end
+""",
+        path,
+        "pending paint retry helpers",
+    )
+
+    old = """local function sendPartPaints(inventoryId, serverVehicleID, originID)
+\tlocal partConditions = career_modules_inventory.getVehicles()[inventoryId].partConditions
+\tfor part, partData in pairs(partConditions) do
+\t\tif partData.visualState then
+\t\t\tlocal data = {}
+\t\t\tdata.partPath = part
+\t\t\tdata.slotPath, data.partName = string.match(data.partPath, "(.*/)([^/]+)$")
+\t\t\tdata.paints = partData.visualState.paint.originalPaints
+\t\t\tdata.serverVehicleID = serverVehicleID
+\t\t\tif originID\tthen
+\t\t\t\tdata.originID = originID
+\t\t\tend
+\t\t\tTriggerServerEvent("perPartPainting", jsonEncode(data))
+\t\tend
+\tend
+end
+"""
+    new = """local function sendPartPaints(inventoryId, serverVehicleID, originID, fromPending)
+\tif not career_modules_inventory or not career_modules_inventory.getVehicles then
+\t\tif not fromPending then
+\t\t\tqueuePendingPartPaint(inventoryId, serverVehicleID, originID)
+\t\tend
+\t\treturn false
+\tend
+
+\tlocal vehicles = career_modules_inventory.getVehicles()
+\tlocal vehicle = vehicles and vehicles[inventoryId] or nil
+\tif not vehicle then
+\t\tif not fromPending then
+\t\t\tqueuePendingPartPaint(inventoryId, serverVehicleID, originID)
+\t\tend
+\t\treturn false
+\tend
+
+\tlocal partConditions = vehicle.partConditions
+\tif type(partConditions) ~= "table" then
+\t\tif not fromPending then
+\t\t\tqueuePendingPartPaint(inventoryId, serverVehicleID, originID)
+\t\tend
+\t\tlog('D', 'careerMP', 'perPartPaint: inventoryId ' .. tostring(inventoryId) .. ' has no partConditions yet; deferring paint sync')
+\t\treturn false
+\tend
+
+\tfor part, partData in pairs(partConditions) do
+\t\tlocal paintState = partData and partData.visualState and partData.visualState.paint
+\t\tif paintState and paintState.originalPaints then
+\t\t\tlocal data = {}
+\t\t\tdata.partPath = part
+\t\t\tdata.slotPath, data.partName = string.match(data.partPath, "(.*/)([^/]+)$")
+\t\t\tdata.paints = paintState.originalPaints
+\t\t\tdata.serverVehicleID = serverVehicleID
+\t\t\tif originID\tthen
+\t\t\t\tdata.originID = originID
+\t\t\tend
+\t\t\tTriggerServerEvent("perPartPainting", jsonEncode(data))
+\t\tend
+\tend
+\treturn true
+end
+"""
+    text = replace_once(text, old, new, path, "guard missing inventory part conditions")
+
+    old = """local function onInventorySpawnVehicle(inventoryId, gameVehicleID)
+\tif gameVehicleID then
+\t\tlocal vehicles = MPVehicleGE.getVehicles()
+\t\tfor serverVehicleID, vehicleData in pairs(vehicles) do
+\t\t\tif vehicleData.gameVehicleID and vehicleData.gameVehicleID == gameVehicleID then
+\t\t\t\tsendPartPaints(inventoryId, serverVehicleID)
+\t\t\telse
+\t\t\t\ttable.insert(pendingPaints, inventoryId)
+\t\t\tend
+\t\tend
+\telse
+\t\ttable.insert(pendingPaints, inventoryId)
+\tend
+end
+"""
+    new = """local function onInventorySpawnVehicle(inventoryId, gameVehicleID)
+\tif gameVehicleID then
+\t\tlocal vehicles = MPVehicleGE.getVehicles()
+\t\tfor serverVehicleID, vehicleData in pairs(vehicles) do
+\t\t\tif vehicleData.gameVehicleID and vehicleData.gameVehicleID == gameVehicleID then
+\t\t\t\tsendPartPaints(inventoryId, serverVehicleID)
+\t\t\telse
+\t\t\t\tqueuePendingPartPaint(inventoryId, nil, nil)
+\t\t\tend
+\t\tend
+\telse
+\t\tqueuePendingPartPaint(inventoryId, nil, nil)
+\tend
+end
+"""
+    text = replace_once(text, old, new, path, "use deduplicated pending paint queue")
+
+    old = """\t\tfor i = #pendingPaints, 1, -1 do
+\t\t\tlocal entry = pendingPaints[i]
+\t\t\tlocal gameVehicleID = career_modules_inventory.getVehicleIdFromInventoryId(entry)
+\t\t\tif gameVehicleID then
+\t\t\t\tvehicles = MPVehicleGE.getVehicles()
+\t\t\t\tfor serverVehicleID, vehicleData in pairs(vehicles) do
+\t\t\t\t\tif vehicleData.gameVehicleID == gameVehicleID then
+\t\t\t\t\t\tsendPartPaints(entry, serverVehicleID)
+\t\t\t\t\t\ttable.remove(pendingPaints, i)
+\t\t\t\t\tend
+\t\t\t\tend
+\t\t\tend
+\t\tend
+"""
+    new = """\t\tfor i = #pendingPaints, 1, -1 do
+\t\t\tlocal entry = pendingPaints[i]
+\t\t\tlocal inventoryId = getPendingInventoryId(entry)
+\t\t\tlocal serverVehicleID = type(entry) == "table" and entry.serverVehicleID or nil
+\t\t\tlocal originID = type(entry) == "table" and entry.originID or nil
+\t\t\tlocal attempts = type(entry) == "table" and (entry.attempts or 0) or 0
+\t\t\tif not serverVehicleID and career_modules_inventory and career_modules_inventory.getVehicleIdFromInventoryId then
+\t\t\t\tlocal gameVehicleID = career_modules_inventory.getVehicleIdFromInventoryId(inventoryId)
+\t\t\t\tif gameVehicleID then
+\t\t\t\t\tvehicles = MPVehicleGE.getVehicles()
+\t\t\t\t\tfor foundServerVehicleID, vehicleData in pairs(vehicles) do
+\t\t\t\t\t\tif vehicleData.gameVehicleID == gameVehicleID then
+\t\t\t\t\t\t\tserverVehicleID = foundServerVehicleID
+\t\t\t\t\t\t\tbreak
+\t\t\t\t\t\tend
+\t\t\t\t\tend
+\t\t\t\tend
+\t\t\tend
+
+\t\t\tif serverVehicleID then
+\t\t\t\tlocal ok = sendPartPaints(inventoryId, serverVehicleID, originID, true)
+\t\t\t\tif ok or attempts >= maxPendingPaintAttempts then
+\t\t\t\t\ttable.remove(pendingPaints, i)
+\t\t\t\telse
+\t\t\t\t\tpendingPaints[i] = {
+\t\t\t\t\t\tinventoryId = inventoryId,
+\t\t\t\t\t\tserverVehicleID = serverVehicleID,
+\t\t\t\t\t\toriginID = originID,
+\t\t\t\t\t\tattempts = attempts + 1
+\t\t\t\t\t}
+\t\t\t\tend
+\t\t\telseif attempts >= maxPendingPaintAttempts then
+\t\t\t\ttable.remove(pendingPaints, i)
+\t\t\telseif type(entry) == "table" then
+\t\t\t\tentry.attempts = attempts + 1
+\t\t\telse
+\t\t\t\tpendingPaints[i] = { inventoryId = inventoryId, attempts = attempts + 1 }
+\t\t\tend
+\t\tend
+"""
+    text = replace_once(text, old, new, path, "retry pending paints until Better Career inventory is hydrated")
     entries[path] = text.encode("utf-8")
 
 
@@ -688,6 +1337,69 @@ def patch_better_career_facilities_travel(entries: dict[str, bytes]) -> None:
     entries[path] = text.encode("utf-8")
 
 
+def patch_better_career_garages(entries: dict[str, bytes]) -> None:
+    path = "lua/ge/extensions/bcm/garages.lua"
+    text = entries[path].decode("utf-8").replace("\r\n", "\n")
+
+    old = """grantStarterGarageIfNeeded = function()
+  if getGarageCount() > 0 then
+    log('D', 'bcm_garages', 'grantStarterGarageIfNeeded: Player already has garages â€” skipping')
+    return
+  end
+
+  -- Find the garage marked as starter in config
+  local starterId = nil
+  for garageId, definition in pairs(bcmGarageConfig) do
+    if definition.isStarterGarage == true then
+      starterId = garageId
+      break
+    end
+  end
+
+  if starterId then
+    purchaseBcmGarage(starterId)
+    log('I', 'bcm_garages', 'grantStarterGarageIfNeeded: Starter garage granted: ' .. starterId)
+  else
+    log('W', 'bcm_garages', 'grantStarterGarageIfNeeded: No starter garage found in config')
+  end
+end
+"""
+    new = """grantStarterGarageIfNeeded = function()
+  if not bcm_properties then
+    log('W', 'bcm_garages', 'grantStarterGarageIfNeeded: bcm_properties not available, deferring starter garage grant')
+    return
+  end
+
+  if getGarageCount() > 0 then
+    log('D', 'bcm_garages', 'grantStarterGarageIfNeeded: Player already has garages - skipping')
+    return
+  end
+
+  -- Find the garage marked as starter in config
+  local starterId = nil
+  for garageId, definition in pairs(bcmGarageConfig) do
+    if definition.isStarterGarage == true then
+      starterId = garageId
+      break
+    end
+  end
+
+  if starterId then
+    local record = purchaseBcmGarage(starterId)
+    if record then
+      log('I', 'bcm_garages', 'grantStarterGarageIfNeeded: Starter garage granted: ' .. starterId)
+    else
+      log('W', 'bcm_garages', 'grantStarterGarageIfNeeded: purchase failed for starter garage: ' .. starterId)
+    end
+  else
+    log('W', 'bcm_garages', 'grantStarterGarageIfNeeded: No starter garage found in config')
+  end
+end
+"""
+    text = replace_once(text, old, new, path, "starter garage property guard")
+    entries[path] = text.encode("utf-8")
+
+
 def patch_server_entries(entries: dict[str, bytes]) -> dict[str, object]:
     path = "Resources/Server/CareerMP/careerMP.lua"
     text = entries[path].decode("utf-8").replace("\r\n", "\n")
@@ -752,11 +1464,15 @@ def build_artifacts(args: argparse.Namespace) -> dict[str, object]:
     patch_careermp_modscript(client_entries)
     patch_careermp_enabler(client_entries)
     patch_careermp_walk(client_entries)
+    patch_careermp_per_part_paint(client_entries)
     patch_better_career_player_driving(client_entries)
     patch_better_career_spawn_manager(client_entries)
+    patch_better_career_identity(client_entries)
+    patch_better_career_tutorial(client_entries)
     patch_better_career_multimap_travel(client_entries)
     patch_better_career_multimap_app(client_entries)
     patch_better_career_facilities_travel(client_entries)
+    patch_better_career_garages(client_entries)
 
     for name in client_entries:
         if name in FORBIDDEN_ORIGINAL_CAREERMP_CLIENT_FILES:
@@ -906,6 +1622,10 @@ def validate_outputs(args: argparse.Namespace, artifacts: dict[str, object], tes
         player_driving = zf.read("lua/ge/extensions/overrides/career/modules/playerDriving.lua").decode("utf-8")
         modscript = zf.read("scripts/CareerMP/modScript.lua").decode("utf-8")
         spawn_manager = zf.read("lua/ge/extensions/career/modules/bcm_spawnManager.lua").decode("utf-8")
+        identity = zf.read("lua/ge/extensions/bcm/identity.lua").decode("utf-8")
+        tutorial = zf.read("lua/ge/extensions/bcm/tutorial.lua").decode("utf-8")
+        garages = zf.read("lua/ge/extensions/bcm/garages.lua").decode("utf-8")
+        per_part_paint = zf.read("lua/ge/extensions/careerMPPerPartPaint.lua").decode("utf-8")
         walk = zf.read("lua/ge/extensions/gameplay/walk.lua").decode("utf-8")
         multimap = zf.read("lua/ge/extensions/bcm/multimap.lua").decode("utf-8")
         multimap_app = zf.read("lua/ge/extensions/bcm/multimapApp.lua").decode("utf-8")
@@ -919,6 +1639,15 @@ def validate_outputs(args: argparse.Namespace, artifacts: dict[str, object], tes
         "forbidden_career_replacements": forbidden,
         "enabler_uses_better_career": "startBetterCareerCareer" in enabler,
         "enabler_waits_for_bcm_boot": "isBetterCareerBootReady" in enabler,
+        "enabler_waits_for_identity_and_tutorial": "bcm_identity" in enabler and "bcm_tutorial" in enabler,
+        "enabler_waits_for_property_and_real_estate": "bcm_properties" in enabler
+        and "bcm_realEstateApp" in enabler
+        and enabler.find('"bcm_properties"') < enabler.find('"bcm_garages"') < enabler.find('"bcm_realEstateApp"'),
+        "enabler_reloads_ui_for_beammp": "Reloading UI once so Better Career Vue assets mount after BeamMP mod download" in enabler
+        and "reloadUI()" in enabler,
+        "enabler_uses_stable_guest_save": "getStableGuestSaveBaseName" in enabler
+        and "guestSaveIdentity.json" in enabler
+        and "resolveBetterCareerSaveName" in enabler,
         "enabler_does_not_force_career_mp": "career_careerMP" not in enabler,
         "modscript_does_not_load_career_mp": "/career/careerMP" not in modscript,
         "careermp_walk_repositions_existing_unicycle": "repositionUnicycle" in walk,
@@ -927,6 +1656,18 @@ def validate_outputs(args: argparse.Namespace, artifacts: dict[str, object], tes
         "spawn_manager_anchors_existing_beammp_walking_save": "BeamMP/no-player walking state after career load" in spawn_manager,
         "player_driving_respects_careermp_traffic": "Traffic configured by CareerMP" in player_driving,
         "spawn_manager_uses_guarded_tutorial_callback": "extensions.bcm_tutorial" in spawn_manager,
+        "spawn_manager_ensures_first_run_modules": "ensure Better Career first-run modules before spawn" in spawn_manager
+        or "late first-run modules" in spawn_manager,
+        "spawn_manager_direct_tutorial_hook": "directly when it is available" in spawn_manager
+        and "bcm_tutorial.onFirstCareerStart" in spawn_manager,
+        "identity_retries_beammp_modal": "Identity modal retry for BeamMP late UI" in identity and "M.onUpdate = onUpdate" in identity,
+        "identity_autogenerates_for_beammp": "BeamMP identity form did not mount; auto-generating identity" in identity
+        and "M.ensureBeamMPFallbackIdentity = ensureBeamMPFallbackIdentity" in identity,
+        "garages_defers_starter_until_properties": "deferring starter garage grant" in garages
+        and "local record = purchaseBcmGarage(starterId)" in garages,
+        "per_part_paint_defers_missing_conditions": "has no partConditions yet; deferring paint sync" in per_part_paint
+        and "maxPendingPaintAttempts" in per_part_paint,
+        "tutorial_recovers_missed_beammp_start": "Recovering missed first-career tutorial start after BeamMP reload" in tutorial,
         "travel_button_directs_single_destination": "Single reachable destination: travel directly" in facilities,
         "travel_button_closes_activity_prompt": "ChangeState" in facilities and "ChangeState" in multimap_app,
         "multimap_app_keeps_beammp_unpaused": "BeamMP compatibility: never pause" in multimap_app,
@@ -941,6 +1682,10 @@ def validate_outputs(args: argparse.Namespace, artifacts: dict[str, object], tes
         and not forbidden
         and validation["enabler_uses_better_career"]
         and validation["enabler_waits_for_bcm_boot"]
+        and validation["enabler_waits_for_identity_and_tutorial"]
+        and validation["enabler_waits_for_property_and_real_estate"]
+        and validation["enabler_reloads_ui_for_beammp"]
+        and validation["enabler_uses_stable_guest_save"]
         and validation["enabler_does_not_force_career_mp"]
         and validation["modscript_does_not_load_career_mp"]
         and validation["careermp_walk_repositions_existing_unicycle"]
@@ -949,6 +1694,13 @@ def validate_outputs(args: argparse.Namespace, artifacts: dict[str, object], tes
         and validation["spawn_manager_anchors_existing_beammp_walking_save"]
         and validation["player_driving_respects_careermp_traffic"]
         and validation["spawn_manager_uses_guarded_tutorial_callback"]
+        and validation["spawn_manager_ensures_first_run_modules"]
+        and validation["spawn_manager_direct_tutorial_hook"]
+        and validation["identity_retries_beammp_modal"]
+        and validation["identity_autogenerates_for_beammp"]
+        and validation["garages_defers_starter_until_properties"]
+        and validation["per_part_paint_defers_missing_conditions"]
+        and validation["tutorial_recovers_missed_beammp_start"]
         and validation["travel_button_directs_single_destination"]
         and validation["travel_button_closes_activity_prompt"]
         and validation["multimap_app_keeps_beammp_unpaused"]
