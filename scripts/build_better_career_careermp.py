@@ -218,6 +218,27 @@ end
 
     text = replace_once(
         text,
+        "local function rxClientConfigUpdate(data)\n"
+        "\tclientConfig = jsonDecode(data)\n"
+        "\tblockedInputActions = {}\n"
+        "\tsettingsCheck()\n"
+        "\tactionsCheck()\n"
+        "end\n",
+        "local function rxClientConfigUpdate(data)\n"
+        "\tclientConfig = jsonDecode(data)\n"
+        "\tblockedInputActions = {}\n"
+        "\tsettingsCheck()\n"
+        "\tactionsCheck()\n"
+        "\tif not careerMPActive then\n"
+        "\t\tstartBetterCareerCareer()\n"
+        "\tend\n"
+        "end\n",
+        path,
+        "restart Better Career on reconnect config update",
+    )
+
+    text = replace_once(
+        text,
         "\tAddEventHandler(\"rxCareerVehSync\", rxCareerVehSync)\n"
         "\tAddEventHandler(\"rxTrafficSignalTimer\", rxTrafficSignalTimer)\n"
         "\tcareer_career = extensions.career_careerMP\n"
@@ -227,6 +248,33 @@ end
         "\tlog('W', 'careerMP', 'CareerMP Enabler LOADED for Better Career bridge!')\n",
         path,
         "remove career_careerMP assignment",
+    )
+
+    text = replace_once(
+        text,
+        "local function onServerLeave()\n"
+        "\tunPatchBeamMP()\n"
+        "\tblockedInputActions = {}\n"
+        "\textensions.core_input_actionFilter.setGroup('careerMP', blockedInputActions)\n"
+        "\textensions.core_input_actionFilter.addAction(0, 'careerMP', false)\n"
+        "\tsetTrafficSettings(userTrafficSettings)\n"
+        "\tsetGameplaySettings(userGameplaySettings)\n"
+        "end\n",
+        "local function onServerLeave()\n"
+        "\tunPatchBeamMP()\n"
+        "\tclientConfig = nil\n"
+        "\tcareerMPActive = false\n"
+        "\tsyncRequested = false\n"
+        "\twaitingForBetterCareer = false\n"
+        "\tblockedInputActions = {}\n"
+        "\textensions.core_input_actionFilter.setGroup('careerMP', blockedInputActions)\n"
+        "\textensions.core_input_actionFilter.addAction(0, 'careerMP', false)\n"
+        "\tsetTrafficSettings(userTrafficSettings)\n"
+        "\tsetGameplaySettings(userGameplaySettings)\n"
+        "\tlog('W', 'careerMP', 'CareerMP session reset after server leave; Better Career will restart on reconnect')\n"
+        "end\n",
+        path,
+        "reset CareerMP Better Career bridge on server leave",
     )
 
     forbidden = (
@@ -692,6 +740,20 @@ def patch_server_entries(entries: dict[str, bytes]) -> dict[str, object]:
     path = "Resources/Server/CareerMP/careerMP.lua"
     text = entries[path].decode("utf-8").replace("\r\n", "\n")
     text = replace_once(text, "\t\tautoUpdate = true,\n", "\t\tautoUpdate = false,\n", path, "server autoUpdate default")
+    text = replace_once(
+        text,
+        "function onPlayerJoinHandler(player_id)\n"
+        "\tloadedPrefabs[player_id] = {}\n"
+        "end\n",
+        "function onPlayerJoinHandler(player_id)\n"
+        "\tloadedPrefabs[player_id] = {}\n"
+        "\tMP.TriggerClientEventJson(player_id, \"rxCareerSync\", Config.client)\n"
+        "\tMP.TriggerClientEventJson(player_id, \"rxCareerVehSync\", vehicleStates)\n"
+        "\tprint(\"[CareerMP] ---------- Sent Better Career bridge sync to player \" .. tostring(player_id))\n"
+        "end\n",
+        path,
+        "server sends Better Career bridge sync on join",
+    )
     entries[path] = text.encode("utf-8")
 
     config = {
@@ -792,10 +854,10 @@ def copy_tree_clean(src: Path, dst: Path) -> None:
     shutil.copytree(src, dst, ignore=ignore)
 
 
-def patch_server_config(server_dir: Path) -> None:
+def patch_server_config(server_dir: Path, port: int) -> None:
     config = server_dir / "ServerConfig.toml"
     text = config.read_text(encoding="utf-8")
-    text = re.sub(r"^Port = .*$", f"Port = {SERVER_PORT}", text, flags=re.MULTILINE)
+    text = re.sub(r"^Port = .*$", f"Port = {port}", text, flags=re.MULTILINE)
     text = re.sub(r'^Name = ".*"$', 'Name = "Better Career + CareerMP Test"', text, flags=re.MULTILINE)
     text = re.sub(r'^Description = ".*"$', 'Description = "Better Career + original CareerMP bridge validation"', text, flags=re.MULTILINE)
     config.write_text(text, encoding="utf-8", newline="\n")
@@ -804,7 +866,7 @@ def patch_server_config(server_dir: Path) -> None:
 def install_test_server(args: argparse.Namespace, artifacts: dict[str, object]) -> Path:
     test_server = args.test_server
     copy_tree_clean(args.template_server, test_server)
-    patch_server_config(test_server)
+    patch_server_config(test_server, args.server_port)
 
     resources_dir = test_server / "Resources"
     if resources_dir.exists():
@@ -832,7 +894,7 @@ def install_test_server(args: argparse.Namespace, artifacts: dict[str, object]) 
     return test_server
 
 
-def run_server_boot_check(server_dir: Path, timeout: int) -> dict[str, object]:
+def run_server_boot_check(server_dir: Path, timeout: int, port: int) -> dict[str, object]:
     exe = server_dir / "BeamMP-Server.exe"
     if not exe.exists():
         raise RuntimeError(f"BeamMP server executable not found: {exe}")
@@ -877,7 +939,7 @@ def run_server_boot_check(server_dir: Path, timeout: int) -> dict[str, object]:
         "boot_ok": "ALL SYSTEMS STARTED SUCCESSFULLY, EVERYTHING IS OKAY" in log_text,
         "career_mp_loaded": "[CareerMP] ---------- CareerMP Loaded!" in log_text,
         "no_update_attempt": "CareerMP Update" not in log_text,
-        "port": SERVER_PORT,
+        "port": port,
         "log_path": str(log_path),
     }
     return checks
@@ -913,12 +975,15 @@ def validate_outputs(args: argparse.Namespace, artifacts: dict[str, object], tes
 
     with zipfile.ZipFile(server_out, "r") as zf:
         server_config = json.loads(zf.read("Resources/Server/CareerMP/config/config.json").decode("utf-8"))
+        server_lua = zf.read("Resources/Server/CareerMP/careerMP.lua").decode("utf-8")
 
     validation = {
         "missing_required_client_entries": missing,
         "forbidden_career_replacements": forbidden,
         "enabler_uses_better_career": "startBetterCareerCareer" in enabler,
         "enabler_waits_for_bcm_boot": "isBetterCareerBootReady" in enabler,
+        "enabler_resets_on_server_leave": "CareerMP session reset after server leave" in enabler,
+        "enabler_restarts_on_config_update": "local function rxClientConfigUpdate" in enabler and "\t\tstartBetterCareerCareer()\n\tend\nend\n\nlocal function onCareerActive" in enabler,
         "enabler_does_not_force_career_mp": "career_careerMP" not in enabler,
         "modscript_does_not_load_career_mp": "/career/careerMP" not in modscript,
         "careermp_walk_repositions_existing_unicycle": "repositionUnicycle" in walk,
@@ -932,6 +997,7 @@ def validate_outputs(args: argparse.Namespace, artifacts: dict[str, object], tes
         "multimap_app_keeps_beammp_unpaused": "BeamMP compatibility: never pause" in multimap_app,
         "multimap_treats_walking_as_foot_travel": "gameplay_walk.isWalking()" in multimap and "playerVehId = nil" in multimap,
         "server_autoupdate_disabled": server_config["server"]["autoUpdate"] is False,
+        "server_sends_bridge_sync_on_join": "Sent Better Career bridge sync to player" in server_lua,
         "server_config_path": str(test_server / "Resources" / "Server" / "CareerMP" / "config" / "config.json"),
         "test_server": str(test_server),
         "boot": boot,
@@ -941,6 +1007,8 @@ def validate_outputs(args: argparse.Namespace, artifacts: dict[str, object], tes
         and not forbidden
         and validation["enabler_uses_better_career"]
         and validation["enabler_waits_for_bcm_boot"]
+        and validation["enabler_resets_on_server_leave"]
+        and validation["enabler_restarts_on_config_update"]
         and validation["enabler_does_not_force_career_mp"]
         and validation["modscript_does_not_load_career_mp"]
         and validation["careermp_walk_repositions_existing_unicycle"]
@@ -954,6 +1022,7 @@ def validate_outputs(args: argparse.Namespace, artifacts: dict[str, object], tes
         and validation["multimap_app_keeps_beammp_unpaused"]
         and validation["multimap_treats_walking_as_foot_travel"]
         and validation["server_autoupdate_disabled"]
+        and validation["server_sends_bridge_sync_on_join"]
         and (boot is None or (boot["boot_ok"] and boot["career_mp_loaded"] and boot["no_update_attempt"]))
     )
     return validation
@@ -995,6 +1064,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--workspace", type=Path, default=Path(__file__).resolve().parents[1])
     parser.add_argument("--template-server", type=Path, default=DEFAULT_TEMPLATE_SERVER)
     parser.add_argument("--test-server", type=Path, default=DEFAULT_TEST_SERVER)
+    parser.add_argument("--server-port", type=int, default=SERVER_PORT)
     parser.add_argument("--skip-test-server", action="store_true")
     parser.add_argument("--boot-check", action="store_true")
     parser.add_argument("--boot-timeout", type=int, default=30)
@@ -1010,7 +1080,7 @@ def main() -> int:
 
     boot = None
     if args.boot_check and not args.skip_test_server:
-        boot = run_server_boot_check(test_server, args.boot_timeout)
+        boot = run_server_boot_check(test_server, args.boot_timeout, args.server_port)
 
     validation = validate_outputs(args, artifacts, test_server, boot)
     report_path = write_report(args, artifacts, validation)
