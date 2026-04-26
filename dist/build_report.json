@@ -2,14 +2,14 @@
   "client": {
     "entries": 392,
     "path": "C:\\Users\\bruni\\Documents\\PROJETOS\\Jogos\\BEANG\\mods\\generated\\CareerMP_BetterCareer.zip",
-    "sha256": "ad523bc4aeb41bbef1a722493a71e7599ecd499f4e06ed844f6390bea77a16ab",
-    "size": 28292579
+    "sha256": "19fae6d484cb046ba23e420331dad73212e5894ff67634299ceeefd383c7887d",
+    "size": 28292646
   },
   "server": {
     "entries": 4,
     "path": "C:\\Users\\bruni\\Documents\\PROJETOS\\Jogos\\BEANG\\mods\\generated\\CareerMP_BetterCareer_Server.zip",
-    "sha256": "98bb231fd1561598603503c40eea0740cc41369583b9c049aef30bec2e4a6376",
-    "size": 6186
+    "sha256": "a3252789528918702e1b345ae0e01759b1b8c2b3e9a40e7987f9328d0c185934",
+    "size": 6187
   },
   "sources": {
     "better_career": "C:\\Users\\bruni\\Documents\\PROJETOS\\Jogos\\BEANG\\mods\\better_career\\better_career_mod_v0.5.0.zip",
@@ -21,10 +21,11 @@
     "boot": {
       "boot_ok": true,
       "career_mp_loaded": true,
-      "log_path": "C:\\Users\\bruni\\Documents\\PROJETOS\\Jogos\\BEANG\\servers\\tests\\better-career-careermp-west-coast-clean-save\\Server.log",
+      "log_path": "C:\\Users\\bruni\\Documents\\PROJETOS\\Jogos\\BEANG\\servers\\tests\\better-career-careermp-west-coast-saveguard\\Server.log",
       "no_update_attempt": true,
-      "port": 30833
+      "port": 30834
     },
+    "career_save_skips_nil_debug_module_names": true,
     "careermp_walk_repositions_existing_unicycle": true,
     "enabler_does_not_force_career_mp": true,
     "enabler_resets_on_server_leave": true,
@@ -40,13 +41,13 @@
     "ok": true,
     "player_driving_respects_careermp_traffic": true,
     "server_autoupdate_disabled": true,
-    "server_config_path": "C:\\Users\\bruni\\Documents\\PROJETOS\\Jogos\\BEANG\\servers\\tests\\better-career-careermp-west-coast-clean-save\\Resources\\Server\\CareerMP\\config\\config.json",
+    "server_config_path": "C:\\Users\\bruni\\Documents\\PROJETOS\\Jogos\\BEANG\\servers\\tests\\better-career-careermp-west-coast-saveguard\\Resources\\Server\\CareerMP\\config\\config.json",
     "server_sends_bridge_sync_on_join": true,
     "spawn_manager_anchors_existing_beammp_walking_save": true,
     "spawn_manager_forces_walking_spawn": true,
     "spawn_manager_preserves_beammp_unicycle": true,
     "spawn_manager_uses_guarded_tutorial_callback": true,
-    "test_server": "C:\\Users\\bruni\\Documents\\PROJETOS\\Jogos\\BEANG\\servers\\tests\\better-career-careermp-west-coast-clean-save",
+    "test_server": "C:\\Users\\bruni\\Documents\\PROJETOS\\Jogos\\BEANG\\servers\\tests\\better-career-careermp-west-coast-saveguard",
     "travel_button_closes_activity_prompt": true,
     "travel_button_directs_single_destination": true
   }

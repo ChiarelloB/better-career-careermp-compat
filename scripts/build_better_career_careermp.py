@@ -505,6 +505,31 @@ def patch_better_career_spawn_manager(entries: dict[str, bytes]) -> None:
     entries[path] = text.encode("utf-8")
 
 
+def patch_better_career_career_save_guard(entries: dict[str, bytes]) -> None:
+    path = "lua/ge/extensions/overrides/career/career.lua"
+    text = entries[path].decode("utf-8").replace("\r\n", "\n")
+
+    old = """  for _, module in ipairs(debugModules) do
+    if module.getDebugMenuActive and module.___extensionName___ then
+      data.debugModuleOpenStates[module.___extensionName___] = module.getDebugMenuActive()
+    end
+  end
+"""
+    new = """  for _, module in ipairs(debugModules) do
+    if module and module.getDebugMenuActive then
+      local moduleName = module.___extensionName___ or module.__extensionName__ or module.___extensionName or module.debugName
+      if type(moduleName) == "string" and moduleName ~= "" then
+        data.debugModuleOpenStates[moduleName] = module.getDebugMenuActive()
+      else
+        log("W", "bcm_career", "Skipping debug module open state with nil extension name")
+      end
+    end
+  end
+"""
+    text = replace_once(text, old, new, path, "safe debug module open-state save")
+    entries[path] = text.encode("utf-8")
+
+
 def patch_careermp_walk(entries: dict[str, bytes]) -> None:
     path = "lua/ge/extensions/gameplay/walk.lua"
     text = entries[path].decode("utf-8").replace("\r\n", "\n")
@@ -822,6 +847,7 @@ def build_artifacts(args: argparse.Namespace) -> dict[str, object]:
     patch_careermp_modscript(client_entries)
     patch_careermp_enabler(client_entries)
     patch_careermp_walk(client_entries)
+    patch_better_career_career_save_guard(client_entries)
     patch_better_career_player_driving(client_entries)
     patch_better_career_spawn_manager(client_entries)
     patch_better_career_multimap_travel(client_entries)
@@ -976,6 +1002,7 @@ def validate_outputs(args: argparse.Namespace, artifacts: dict[str, object], tes
         player_driving = zf.read("lua/ge/extensions/overrides/career/modules/playerDriving.lua").decode("utf-8")
         modscript = zf.read("scripts/CareerMP/modScript.lua").decode("utf-8")
         spawn_manager = zf.read("lua/ge/extensions/career/modules/bcm_spawnManager.lua").decode("utf-8")
+        career = zf.read("lua/ge/extensions/overrides/career/career.lua").decode("utf-8")
         walk = zf.read("lua/ge/extensions/gameplay/walk.lua").decode("utf-8")
         multimap = zf.read("lua/ge/extensions/bcm/multimap.lua").decode("utf-8")
         multimap_app = zf.read("lua/ge/extensions/bcm/multimapApp.lua").decode("utf-8")
@@ -1001,6 +1028,7 @@ def validate_outputs(args: argparse.Namespace, artifacts: dict[str, object], tes
         "spawn_manager_anchors_existing_beammp_walking_save": "BeamMP/no-player walking state after career load" in spawn_manager,
         "player_driving_respects_careermp_traffic": "Traffic configured by CareerMP" in player_driving,
         "spawn_manager_uses_guarded_tutorial_callback": "extensions.bcm_tutorial" in spawn_manager,
+        "career_save_skips_nil_debug_module_names": "Skipping debug module open state with nil extension name" in career,
         "travel_button_directs_single_destination": "Single reachable destination: travel directly" in facilities,
         "travel_button_closes_activity_prompt": "ChangeState" in facilities and "ChangeState" in multimap_app,
         "multimap_app_keeps_beammp_unpaused": "BeamMP compatibility: never pause" in multimap_app,
@@ -1027,6 +1055,7 @@ def validate_outputs(args: argparse.Namespace, artifacts: dict[str, object], tes
         and validation["spawn_manager_anchors_existing_beammp_walking_save"]
         and validation["player_driving_respects_careermp_traffic"]
         and validation["spawn_manager_uses_guarded_tutorial_callback"]
+        and validation["career_save_skips_nil_debug_module_names"]
         and validation["travel_button_directs_single_destination"]
         and validation["travel_button_closes_activity_prompt"]
         and validation["multimap_app_keeps_beammp_unpaused"]
