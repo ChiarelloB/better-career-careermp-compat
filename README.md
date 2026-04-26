@@ -8,7 +8,27 @@ Generated release files are written to the configured output directory.
 
 - `CareerMP_BetterCareer.zip`: combined client package to install as `Resources/Client/CareerMP.zip`.
 - `CareerMP_BetterCareer_Server.zip`: CareerMP server resource package with upstream auto-update disabled.
+- `CareerMP_BetterCareer_ReadyToUse.zip`: ready-to-use BeamMP server layout. Extract it next to `BeamMP-Server.exe`.
 - `docs/build_report.json`: build report with validation results and artifact hashes.
+
+## Ready To Use Install
+
+For most server owners, use `CareerMP_BetterCareer_ReadyToUse.zip`.
+
+1. Stop the BeamMP server.
+2. Extract `CareerMP_BetterCareer_ReadyToUse.zip` into the same folder as `BeamMP-Server.exe`.
+3. Start the BeamMP server.
+4. Ask players to fully close BeamNG and BeamMP before reconnecting if they previously joined with an older build.
+
+After extraction, the server should contain:
+
+```text
+Resources/Client/CareerMP.zip
+Resources/Server/CareerMP/careerMP.lua
+Resources/Server/CareerMP/config/config.json
+```
+
+Do not install the standalone Better Career zip or another CareerMP client zip alongside this package. The combined client is already inside `Resources/Client/CareerMP.zip`.
 
 ## What This Adapts
 
@@ -40,10 +60,11 @@ Latest generated package:
 
 - Client SHA256: `6174e24eb25739ba7a696ebb1be7fcbd1cc0d6087d22de9cbb6b6b3805d09b07`
 - Server SHA256: `a09239d935443f3519df3569888d2abd87b8c1583360e1cb6696e71f2cd8cb52`
+- Ready To Use SHA256: `6aaa3287c7edfd8a127d503a010945523e8694308a4fcb0b99c9551fb0e0e614`
 - `zipfile.testzip()`: OK
 - Original CareerMP career replacement files are excluded.
 - CareerMP server auto-update is disabled.
-- Better Career boot, UI reload, identity fallback, starter garage guard, paint sync defer, travel fix, and stable guest save validation are enabled.
+- Better Career boot, UI reload, identity fallback, real estate/garage guard, paint sync defer, travel fix, and stable guest save validation are enabled.
 
 ## Reconnect Validation
 

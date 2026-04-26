@@ -5,6 +5,12 @@
     "sha256": "6174e24eb25739ba7a696ebb1be7fcbd1cc0d6087d22de9cbb6b6b3805d09b07",
     "size": 28295169
   },
+  "ready_to_use": {
+    "artifact": "CareerMP_BetterCareer_ReadyToUse.zip",
+    "entries": 6,
+    "sha256": "6aaa3287c7edfd8a127d503a010945523e8694308a4fcb0b99c9551fb0e0e614",
+    "size": 27969875
+  },
   "server": {
     "artifact": "CareerMP_BetterCareer_Server.zip",
     "entries": 4,
@@ -37,6 +43,10 @@
     "ok": true,
     "per_part_paint_defers_missing_conditions": true,
     "player_driving_respects_careermp_traffic": true,
+    "ready_to_use_autoupdate_disabled": true,
+    "ready_to_use_client_matches_release_client": true,
+    "ready_to_use_has_server_layout": true,
+    "ready_to_use_uses_public_save_suffix": true,
     "server_autoupdate_disabled": true,
     "spawn_manager_anchors_existing_beammp_walking_save": true,
     "spawn_manager_direct_tutorial_hook": true,

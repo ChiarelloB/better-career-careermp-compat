@@ -21,6 +21,34 @@ UPSTREAM_CLIENT_URL = "https://raw.githubusercontent.com/StanleyDudek/CareerMP/m
 
 CLIENT_OUT_NAME = "CareerMP_BetterCareer.zip"
 SERVER_OUT_NAME = "CareerMP_BetterCareer_Server.zip"
+READY_TO_USE_OUT_NAME = "CareerMP_BetterCareer_ReadyToUse.zip"
+READY_TO_USE_README = """# Better Career + CareerMP Ready To Use
+
+This package is meant for server owners who want the simplest BeamMP install path.
+
+## Install
+
+1. Stop your BeamMP server.
+2. Extract this zip into the same folder as `BeamMP-Server.exe`.
+3. Confirm these files exist:
+   - `Resources/Client/CareerMP.zip`
+   - `Resources/Server/CareerMP/careerMP.lua`
+   - `Resources/Server/CareerMP/config/config.json`
+4. Start the BeamMP server again.
+
+## Important
+
+- Do not also install the standalone Better Career zip in `Resources/Client`.
+- Do not also install another CareerMP client zip in `Resources/Client`.
+- CareerMP auto-update is disabled in this package so the server does not replace the compatibility client.
+- If you are replacing an older build, close BeamNG and BeamMP completely before reconnecting so the client reloads the new Lua/UI files.
+
+## What Players Should See
+
+- Better Career tutorial and phone flow should load.
+- The computer garage purchase flow should open the Better Career UI instead of closing the prompt.
+- CareerMP player list/payment UI should still be available in BeamMP.
+"""
 
 CAREERMP_CLIENT_KEEP_PREFIXES = (
     "levels/west_coast_usa/main/MissionGroup/career_garage/",
@@ -1441,6 +1469,18 @@ def patch_server_entries(entries: dict[str, bytes]) -> dict[str, object]:
     return config
 
 
+def build_ready_to_use_entries(client_out: Path, server_entries: dict[str, bytes]) -> dict[str, bytes]:
+    ready_entries = {
+        "README_READY_TO_USE.md": READY_TO_USE_README.encode("utf-8"),
+        "Resources/Client/CareerMP.zip": client_out.read_bytes(),
+    }
+    for name, data in server_entries.items():
+        normalized = name.replace("\\", "/")
+        if normalized.startswith("Resources/Server/CareerMP/"):
+            ready_entries[normalized] = data
+    return ready_entries
+
+
 def build_artifacts(args: argparse.Namespace) -> dict[str, object]:
     better_career_zip = args.better_career
     server_zip = args.server
@@ -1479,10 +1519,13 @@ def build_artifacts(args: argparse.Namespace) -> dict[str, object]:
 
     client_out = out_dir / CLIENT_OUT_NAME
     server_out = out_dir / SERVER_OUT_NAME
+    ready_to_use_out = out_dir / READY_TO_USE_OUT_NAME
     write_zip(client_entries, client_out)
     write_zip(server_entries, server_out)
+    ready_to_use_entries = build_ready_to_use_entries(client_out, server_entries)
+    write_zip(ready_to_use_entries, ready_to_use_out)
 
-    for out in (client_out, server_out):
+    for out in (client_out, server_out, ready_to_use_out):
         with zipfile.ZipFile(out, "r") as zf:
             bad = zf.testzip()
             if bad:
@@ -1491,10 +1534,12 @@ def build_artifacts(args: argparse.Namespace) -> dict[str, object]:
     return {
         "client_out": client_out,
         "server_out": server_out,
+        "ready_to_use_out": ready_to_use_out,
         "upstream_client": client_zip,
         "server_config": server_config,
         "client_entries": len(client_entries),
         "server_entries": len(server_entries),
+        "ready_to_use_entries": len(ready_to_use_entries),
     }
 
 
@@ -1600,6 +1645,7 @@ def run_server_boot_check(server_dir: Path, timeout: int) -> dict[str, object]:
 def validate_outputs(args: argparse.Namespace, artifacts: dict[str, object], test_server: Path, boot: dict[str, object] | None) -> dict[str, object]:
     client_out = artifacts["client_out"]
     server_out = artifacts["server_out"]
+    ready_to_use_out = artifacts["ready_to_use_out"]
     with zipfile.ZipFile(client_out, "r") as zf:
         names = set(zf.namelist())
         required = {
@@ -1631,6 +1677,12 @@ def validate_outputs(args: argparse.Namespace, artifacts: dict[str, object], tes
 
     with zipfile.ZipFile(server_out, "r") as zf:
         server_config = json.loads(zf.read("Resources/Server/CareerMP/config/config.json").decode("utf-8"))
+
+    with zipfile.ZipFile(ready_to_use_out, "r") as zf:
+        ready_names = set(zf.namelist())
+        ready_client_hash = sha256sum(client_out)
+        ready_client_data_hash = hashlib.sha256(zf.read("Resources/Client/CareerMP.zip")).hexdigest()
+        ready_server_config = json.loads(zf.read("Resources/Server/CareerMP/config/config.json").decode("utf-8"))
 
     validation = {
         "missing_required_client_entries": missing,
@@ -1671,6 +1723,17 @@ def validate_outputs(args: argparse.Namespace, artifacts: dict[str, object], tes
         "multimap_app_keeps_beammp_unpaused": "BeamMP compatibility: never pause" in multimap_app,
         "multimap_treats_walking_as_foot_travel": "gameplay_walk.isWalking()" in multimap and "playerVehId = nil" in multimap,
         "server_autoupdate_disabled": server_config["server"]["autoUpdate"] is False,
+        "ready_to_use_has_server_layout": {
+            "README_READY_TO_USE.md",
+            "Resources/Client/CareerMP.zip",
+            "Resources/Server/CareerMP/careerMP.lua",
+            "Resources/Server/CareerMP/config/config.json",
+            "Resources/Server/CareerMP/versions/client.json",
+            "Resources/Server/CareerMP/versions/server.json",
+        }.issubset(ready_names),
+        "ready_to_use_client_matches_release_client": ready_client_data_hash == ready_client_hash,
+        "ready_to_use_autoupdate_disabled": ready_server_config["server"]["autoUpdate"] is False,
+        "ready_to_use_uses_public_save_suffix": ready_server_config["client"]["serverSaveSuffix"] == "_BetterCareerMP",
         "boot": boot,
     }
     validation["ok"] = (
@@ -1702,6 +1765,10 @@ def validate_outputs(args: argparse.Namespace, artifacts: dict[str, object], tes
         and validation["multimap_app_keeps_beammp_unpaused"]
         and validation["multimap_treats_walking_as_foot_travel"]
         and validation["server_autoupdate_disabled"]
+        and validation["ready_to_use_has_server_layout"]
+        and validation["ready_to_use_client_matches_release_client"]
+        and validation["ready_to_use_autoupdate_disabled"]
+        and validation["ready_to_use_uses_public_save_suffix"]
         and (boot is None or (boot["boot_ok"] and boot["career_mp_loaded"] and boot["no_update_attempt"]))
     )
     return validation
@@ -1720,6 +1787,12 @@ def write_report(args: argparse.Namespace, artifacts: dict[str, object], validat
             "sha256": sha256sum(artifacts["server_out"]),
             "size": Path(artifacts["server_out"]).stat().st_size,
             "entries": artifacts["server_entries"],
+        },
+        "ready_to_use": {
+            "artifact": Path(artifacts["ready_to_use_out"]).name,
+            "sha256": sha256sum(artifacts["ready_to_use_out"]),
+            "size": Path(artifacts["ready_to_use_out"]).stat().st_size,
+            "entries": artifacts["ready_to_use_entries"],
         },
         "sources": {
             "better_career": args.better_career.name,
@@ -1766,6 +1839,7 @@ def main() -> int:
     print(json.dumps({
         "client": Path(artifacts["client_out"]).name,
         "server": Path(artifacts["server_out"]).name,
+        "ready_to_use": Path(artifacts["ready_to_use_out"]).name,
         "report": report_path.name,
         "validation_ok": validation["ok"],
         "boot": boot,
